@@ -79,6 +79,9 @@ int main(int argc, char **argv)
 	drmModeRes *res;
 	uint32_t conn_id;
 	uint32_t crtc_id;
+    struct buffer_object *bo=&buf;
+    uint32_t color=0x000000;
+
     // Open the DRM device
     fd = open("/dev/dri/card0", O_RDWR | O_CLOEXEC);
     if (fd < 0) {
@@ -155,6 +158,29 @@ int main(int argc, char **argv)
     printf("Press Enter to exit...\n");
     getchar();
 
+    for (int i = 0; i < (bo->size / 4); i++){
+        ++color;
+        bo->vaddr[i] = color;
+        if(i%10==0)
+        {
+            printf("color %d \n",color);
+             // Set CRTC
+            if (drmModeSetCrtc(fd, crtc_id, buf.fb_id, 0, 0, &conn_id, 1, &conn->modes[0]) != 0) {
+                perror("drmModeSetCrtc failed");
+                modeset_destroy_fb(fd, &buf);
+                drmModeFreeConnector(conn);
+                drmModeFreeResources(res);
+                close(fd);
+                return EXIT_FAILURE;
+            }
+            //sleep(1);
+        }
+        
+    }
+        
+
+    printf("Press Enter to exit...\n");
+    getchar();
     // Clean up resources
     modeset_destroy_fb(fd, &buf);
     drmModeFreeConnector(conn);
