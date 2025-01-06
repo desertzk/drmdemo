@@ -72,6 +72,8 @@ static void modeset_destroy_fb(int fd, struct buffer_object *bo)
 	drmIoctl(fd, DRM_IOCTL_MODE_DESTROY_DUMB, &destroy);
 }
 
+
+//handle vblank(vsync) event
 static void modeset_page_flip_handler(int fd, uint32_t frame,
 				    uint32_t sec, uint32_t usec,
 				    void *data)
@@ -106,13 +108,23 @@ int main(int argc, char **argv)
 	ev.version = DRM_EVENT_CONTEXT_VERSION;
 	ev.page_flip_handler = modeset_page_flip_handler;
 
-	fd = open("/dev/dri/card0", O_RDWR | O_CLOEXEC);
+	fd = open("/dev/dri/card1", O_RDWR | O_CLOEXEC);
+	if (fd < 0) {
+		perror("Failed to open DRM device");
+		return -1;
+	}
 
 	res = drmModeGetResources(fd);
 	crtc_id = res->crtcs[0];
 	conn_id = res->connectors[0];
 
 	conn = drmModeGetConnector(fd, conn_id);
+if (!conn || conn->count_modes == 0) {
+    fprintf(stderr, "No valid connector or modes found\n");
+    return -1;
+}
+
+
 	buf[0].width = conn->modes[0].hdisplay;
 	buf[0].height = conn->modes[0].vdisplay;
 	buf[1].width = conn->modes[0].hdisplay;

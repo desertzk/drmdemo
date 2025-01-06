@@ -98,7 +98,7 @@ int main(int argc, char **argv)
 			0, 0, &conn_id, 1, &conn->modes[0]);
 
 	getchar();
-
+/* crop the rect from framebuffer(100, 150) to crtc(50, 50) */
 	drmModeSetPlane(fd, plane_id, crtc_id, buf.fb_id, 0,
 			50, 50, 320, 320,
 			100, 150, 320 << 16, 320 << 16);
