@@ -96,6 +96,19 @@ static uint32_t get_property_id(int fd, drmModeObjectProperties *props,
 }
 
 
+uint32_t plane_id;
+uint32_t prop_fb_id;
+uint32_t prop_crtc_id;
+uint32_t prop_src_x;
+uint32_t prop_src_y;
+uint32_t prop_src_w;
+uint32_t prop_src_h;
+uint32_t prop_crtc_x;
+uint32_t prop_crtc_y; 
+uint32_t prop_crtc_w; 
+uint32_t prop_crtc_h; 
+
+
 //handle vblank(vsync) event
 static void modeset_page_flip_handler(int fd, uint32_t frame,
 				    uint32_t sec, uint32_t usec,
@@ -106,10 +119,33 @@ static void modeset_page_flip_handler(int fd, uint32_t frame,
 
 	i ^= 1;
 	printf("fd %d crtc_id %d buf[i].fb_id %d data %llx \n",fd,crtc_id,buf[i].fb_id,data);
-	drmModePageFlip(fd, crtc_id, buf[i].fb_id,
-			DRM_MODE_PAGE_FLIP_EVENT, data);
+	// drmModePageFlip(fd, crtc_id, buf[i].fb_id,
+	// 		DRM_MODE_PAGE_FLIP_EVENT, data);
 
-	sleep(13);
+
+	drmModeAtomicReq *req = drmModeAtomicAlloc();
+	drmModeAtomicAddProperty(req, plane_id, prop_crtc_id, crtc_id);
+	drmModeAtomicAddProperty(req, plane_id, prop_fb_id, buf[i].fb_id);
+	drmModeAtomicAddProperty(req, plane_id, prop_src_x, 0);
+	drmModeAtomicAddProperty(req, plane_id, prop_src_y, 0);
+	drmModeAtomicAddProperty(req, plane_id, prop_src_w, buf[i].width << 16); // Full buffer
+	drmModeAtomicAddProperty(req, plane_id, prop_src_h, buf[i].height << 16);
+	drmModeAtomicAddProperty(req, plane_id, prop_crtc_x, 0); // Start at top-left
+	drmModeAtomicAddProperty(req, plane_id, prop_crtc_y, 0);
+	drmModeAtomicAddProperty(req, plane_id, prop_crtc_w, buf[i].width); 
+	drmModeAtomicAddProperty(req, plane_id, prop_crtc_h, buf[i].height);
+
+	// drmModePageFlip(fd, crtc_id, buf[0].fb_id,
+	// 		DRM_MODE_PAGE_FLIP_EVENT, &crtc_id);
+// Commit and check errors
+int ret = drmModeAtomicCommit(fd, req, DRM_MODE_ATOMIC_ALLOW_MODESET| DRM_MODE_PAGE_FLIP_EVENT, &crtc_id);
+if (ret < 0) {
+    fprintf(stderr, "Plane commit failed: %s\n", strerror(-ret));
+}
+drmModeAtomicFree(req);
+
+
+	sleep(10);
 }
 
 
@@ -128,7 +164,7 @@ int main(int argc, char **argv)
 	drmModeAtomicReq *req;
 	uint32_t conn_id;
 	uint32_t crtc_id;
-	uint32_t plane_id;
+
 	uint32_t blob_id;
 	uint32_t property_crtc_id;
 	uint32_t property_mode_id;
@@ -192,16 +228,16 @@ printf("drmModeSetPlane\n");
 	// 		0, 0, 320 << 16, 320 << 16);
 	// Get plane properties
 props = drmModeObjectGetProperties(fd, plane_id, DRM_MODE_OBJECT_PLANE);
-uint32_t prop_fb_id = get_property_id(fd, props, "FB_ID");
-uint32_t prop_crtc_id = get_property_id(fd, props, "CRTC_ID");
-uint32_t prop_src_x = get_property_id(fd, props, "SRC_X");
-uint32_t prop_src_y = get_property_id(fd, props, "SRC_Y");
-uint32_t prop_src_w = get_property_id(fd, props, "SRC_W");
-uint32_t prop_src_h = get_property_id(fd, props, "SRC_H");
-uint32_t prop_crtc_x = get_property_id(fd, props, "CRTC_X");
-uint32_t prop_crtc_y = get_property_id(fd, props, "CRTC_Y");
-uint32_t prop_crtc_w = get_property_id(fd, props, "CRTC_W");
-uint32_t prop_crtc_h = get_property_id(fd, props, "CRTC_H");
+prop_fb_id = get_property_id(fd, props, "FB_ID");
+prop_crtc_id = get_property_id(fd, props, "CRTC_ID");
+prop_src_x = get_property_id(fd, props, "SRC_X");
+prop_src_y = get_property_id(fd, props, "SRC_Y");
+prop_src_w = get_property_id(fd, props, "SRC_W");
+prop_src_h = get_property_id(fd, props, "SRC_H");
+prop_crtc_x = get_property_id(fd, props, "CRTC_X");
+prop_crtc_y = get_property_id(fd, props, "CRTC_Y");
+prop_crtc_w = get_property_id(fd, props, "CRTC_W");
+prop_crtc_h = get_property_id(fd, props, "CRTC_H");
 drmModeFreeObjectProperties(props);
 
 // Set up atomic request for the plane
