@@ -9,10 +9,8 @@
 #include <sys/mman.h>
 #include <time.h>
 #include <unistd.h>
-#include <signal.h>
 #include <xf86drm.h>
 #include <xf86drmMode.h>
-#include <drm/drm_fourcc.h>
 
 struct buffer_object {
 	uint32_t width;
@@ -24,10 +22,9 @@ struct buffer_object {
 	uint32_t fb_id;
 };
 
-struct buffer_object buf[2];
-static int terminate;
+struct buffer_object buf;
 
-static int modeset_create_fb(int fd, struct buffer_object *bo,uint32_t color)
+static int modeset_create_fb(int fd, struct buffer_object *bo)
 {
 	struct drm_mode_create_dumb create = {};
  	struct drm_mode_map_dumb map = {};
@@ -40,14 +37,8 @@ static int modeset_create_fb(int fd, struct buffer_object *bo,uint32_t color)
 	bo->pitch = create.pitch;
 	bo->size = create.size;
 	bo->handle = create.handle;
-	// drmModeAddFB(fd, bo->width, bo->height, 24, 32, bo->pitch,
-	// 		   bo->handle, &bo->fb_id);
-	uint32_t handles[4] = { bo->handle };
-	uint32_t pitches[4] = { bo->pitch };
-	uint32_t offsets[4] = { 0 };
-	uint32_t format = DRM_FORMAT_XRGB8888; // Explicit format
-
-	drmModeAddFB2(fd, bo->width, bo->height, format, handles, pitches, offsets, &bo->fb_id, 0);
+	drmModeAddFB(fd, bo->width, bo->height, 24, 32, bo->pitch,
+			   bo->handle, &bo->fb_id);
 
 	map.handle = create.handle;
 	drmIoctl(fd, DRM_IOCTL_MODE_MAP_DUMB, &map);
@@ -55,11 +46,7 @@ static int modeset_create_fb(int fd, struct buffer_object *bo,uint32_t color)
 	bo->vaddr = mmap(0, create.size, PROT_READ | PROT_WRITE,
 			MAP_SHARED, fd, map.offset);
 
-	//memset(bo->vaddr, 0xf0, bo->size);
-	uint32_t *pixel = (uint32_t*)bo->vaddr;
-	for (size_t i = 0; i < (bo->size / 4); i++) {
-		pixel[i] = color; // Solid red
-	}
+	memset(bo->vaddr, 0xf0, bo->size);
 
 	return 0;
 }
@@ -95,29 +82,6 @@ static uint32_t get_property_id(int fd, drmModeObjectProperties *props,
 	return id;
 }
 
-
-//handle vblank(vsync) event
-static void modeset_page_flip_handler(int fd, uint32_t frame,
-				    uint32_t sec, uint32_t usec,
-				    void *data)
-{
-	static int i = 0;
-	uint32_t crtc_id = *(uint32_t *)data;
-
-	i ^= 1;
-	printf("fd %d crtc_id %d buf[i].fb_id %d data %llx \n",fd,crtc_id,buf[i].fb_id,data);
-	drmModePageFlip(fd, crtc_id, buf[i].fb_id,
-			DRM_MODE_PAGE_FLIP_EVENT, data);
-
-	sleep(13);
-}
-
-
-static void sigint_handler(int arg)
-{
-	terminate = 1;
-}
-
 int main(int argc, char **argv)
 {
 	int fd;
@@ -133,13 +97,6 @@ int main(int argc, char **argv)
 	uint32_t property_crtc_id;
 	uint32_t property_mode_id;
 	uint32_t property_active;
-	drmEventContext ev = {};
-	ev.version = DRM_EVENT_CONTEXT_VERSION;
-	ev.page_flip_handler = modeset_page_flip_handler;
-
-
-
-	signal(SIGINT, sigint_handler);
 
 	fd = open("/dev/dri/card0", O_RDWR | O_CLOEXEC);
 
@@ -149,18 +106,13 @@ int main(int argc, char **argv)
 
 	drmSetClientCap(fd, DRM_CLIENT_CAP_UNIVERSAL_PLANES, 1);
 	plane_res = drmModeGetPlaneResources(fd);
-	plane_id = plane_res->planes[0]; 
-
+	plane_id = plane_res->planes[0];
 
 	conn = drmModeGetConnector(fd, conn_id);
-	buf[0].width = conn->modes[0].hdisplay;
-	buf[0].height = conn->modes[0].vdisplay;
-	buf[1].width = conn->modes[0].hdisplay;
-	buf[1].height = conn->modes[0].vdisplay;
+	buf.width = conn->modes[0].hdisplay;
+	buf.height = conn->modes[0].vdisplay;
 
-
-	modeset_create_fb(fd, &buf[0],0xff0000);
-	modeset_create_fb(fd, &buf[1], 0x0000ff);
+	modeset_create_fb(fd, &buf);
 
 	drmSetClientCap(fd, DRM_CLIENT_CAP_ATOMIC, 1);
 
@@ -186,7 +138,6 @@ int main(int argc, char **argv)
 	printf("drmModeAtomicCommit SetCrtc\n");
 	getchar();
 
-printf("drmModeSetPlane\n");
 	// drmModeSetPlane(fd, plane_id, crtc_id, buf.fb_id, 0,
 	// 		50, 50, 320, 320,
 	// 		0, 0, 320 << 16, 320 << 16);
@@ -205,50 +156,26 @@ uint32_t prop_crtc_h = get_property_id(fd, props, "CRTC_H");
 drmModeFreeObjectProperties(props);
 
 // Set up atomic request for the plane
-// req = drmModeAtomicAlloc();
-// drmModeAtomicAddProperty(req, plane_id, prop_crtc_id, crtc_id);
-// drmModeAtomicAddProperty(req, plane_id, prop_fb_id, buf.fb_id);
-// drmModeAtomicAddProperty(req, plane_id, prop_src_x, 0);
-// drmModeAtomicAddProperty(req, plane_id, prop_src_y, 0);
-// drmModeAtomicAddProperty(req, plane_id, prop_src_w, 320 << 16); // 16.16 fixed point
-// drmModeAtomicAddProperty(req, plane_id, prop_src_h, 320 << 16);
-// drmModeAtomicAddProperty(req, plane_id, prop_crtc_x, 50);
-// drmModeAtomicAddProperty(req, plane_id, prop_crtc_y, 50);
-// drmModeAtomicAddProperty(req, plane_id, prop_crtc_w, 320);
-// drmModeAtomicAddProperty(req, plane_id, prop_crtc_h, 320);
+req = drmModeAtomicAlloc();
+drmModeAtomicAddProperty(req, plane_id, prop_crtc_id, crtc_id);
+drmModeAtomicAddProperty(req, plane_id, prop_fb_id, buf.fb_id);
+drmModeAtomicAddProperty(req, plane_id, prop_src_x, 0);
+drmModeAtomicAddProperty(req, plane_id, prop_src_y, 0);
+drmModeAtomicAddProperty(req, plane_id, prop_src_w, 320 << 16); // 16.16 fixed point
+drmModeAtomicAddProperty(req, plane_id, prop_src_h, 320 << 16);
+drmModeAtomicAddProperty(req, plane_id, prop_crtc_x, 50);
+drmModeAtomicAddProperty(req, plane_id, prop_crtc_y, 50);
+drmModeAtomicAddProperty(req, plane_id, prop_crtc_w, 320);
+drmModeAtomicAddProperty(req, plane_id, prop_crtc_h, 320);
 
-	req = drmModeAtomicAlloc();
-	drmModeAtomicAddProperty(req, plane_id, prop_crtc_id, crtc_id);
-	drmModeAtomicAddProperty(req, plane_id, prop_fb_id, buf[0].fb_id);
-	drmModeAtomicAddProperty(req, plane_id, prop_src_x, 0);
-	drmModeAtomicAddProperty(req, plane_id, prop_src_y, 0);
-	drmModeAtomicAddProperty(req, plane_id, prop_src_w, buf[0].width << 16); // Full buffer
-	drmModeAtomicAddProperty(req, plane_id, prop_src_h, buf[0].height << 16);
-	drmModeAtomicAddProperty(req, plane_id, prop_crtc_x, 0); // Start at top-left
-	drmModeAtomicAddProperty(req, plane_id, prop_crtc_y, 0);
-	drmModeAtomicAddProperty(req, plane_id, prop_crtc_w, buf[0].width); 
-	drmModeAtomicAddProperty(req, plane_id, prop_crtc_h, buf[0].height);
-
-	// drmModePageFlip(fd, crtc_id, buf[0].fb_id,
-	// 		DRM_MODE_PAGE_FLIP_EVENT, &crtc_id);
-// Commit and check errors
-int ret = drmModeAtomicCommit(fd, req, DRM_MODE_ATOMIC_ALLOW_MODESET| DRM_MODE_PAGE_FLIP_EVENT, &crtc_id);
-if (ret < 0) {
-    fprintf(stderr, "Plane commit failed: %s\n", strerror(-ret));
-}
+// Commit the plane configuration
+drmModeAtomicCommit(fd, req, DRM_MODE_ATOMIC_ALLOW_MODESET, NULL);
 drmModeAtomicFree(req);
 
-
-
-	while (!terminate) {
-		drmHandleEvent(fd, &ev);
-	}
-
-	
+	printf("drmModeSetPlane\n");
 	getchar();
 
-	modeset_destroy_fb(fd, &buf[0]);
-	modeset_destroy_fb(fd, &buf[1]);
+	modeset_destroy_fb(fd, &buf);
 
 	drmModeFreeConnector(conn);
 	drmModeFreePlaneResources(plane_res);
