@@ -1,16 +1,17 @@
-# Variables
 CC = gcc
-CFLAGS = -g -I/home/amd/umd/drm/include/drm
-LDFLAGS = -ldrm
-TARGET = modeset-single-buffer
-SRC = modeset-single-buffer.c
+FLAGS=`pkg-config --cflags --libs libdrm`
+FLAGS+=-O0 -g
 
-# Targets
-all: $(TARGET)
+# 获取所有的 .c 文件，并去除路径和扩展名作为目标文件名
+SRCS := $(wildcard *.c)
+TARGETS := $(SRCS:.c=)
 
-$(TARGET): $(SRC)
-	$(CC) $(CFLAGS) -o $(TARGET) $(SRC) $(LDFLAGS)
+all: $(TARGETS)
+
+# 模式规则：%.o 依赖于 %.c
+%: %.c
+	$(CC)  -o $@ $< $(FLAGS)
 
 clean:
-	rm -f $(TARGET)
+	rm -f $(TARGETS)
 
